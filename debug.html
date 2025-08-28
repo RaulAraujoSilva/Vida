@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug - Simulador de Ecossistema</title>
+    <style>
+        body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; padding: 20px; }
+        .debug-panel { background: #2a2a2a; padding: 20px; border-radius: 8px; margin: 10px 0; }
+        button { background: #4a4a4a; color: white; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #5a5a5a; }
+        .log { background: #1a1a1a; padding: 10px; border-radius: 4px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+        .error { color: #ff6b6b; }
+        .success { color: #4ecdc4; }
+        .warning { color: #ffe66d; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Debug - Simulador de Ecossistema</h1>
+
+    <div class="debug-panel">
+        <h2>🎮 Controles de Debug</h2>
+        <button onclick="runDiagnostics()">Executar Diagnóstico</button>
+        <button onclick="forceRedraw()">Forçar Redesenho</button>
+        <button onclick="testSimulation()">Testar Simulação</button>
+        <button onclick="openSimulator()">Abrir Simulador</button>
+        <button onclick="clearLogs()">Limpar Logs</button>
+    </div>
+
+    <div class="debug-panel">
+        <h2>📊 Logs</h2>
+        <div id="logContainer" class="log"></div>
+    </div>
+
+    <div class="debug-panel">
+        <h2>📈 Estado do Simulador</h2>
+        <div id="stateContainer"></div>
+    </div>
+
+    <script>
+        // Função para log
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+            logContainer.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        function clearLogs() {
+            document.getElementById('logContainer').innerHTML = '';
+        }
+
+        function runDiagnostics() {
+            log('🔍 Iniciando diagnóstico...');
+
+            // Verificar se simulador está carregado
+            const simulatorWindow = window.open('http://localhost:8080/simulador-ecossistema.html', 'simulator');
+            if(!simulatorWindow) {
+                log('❌ Não foi possível abrir o simulador. Verifique se o servidor está rodando.', 'error');
+                return;
+            }
+
+            setTimeout(() => {
+                try {
+                    const sim = simulatorWindow.window.ecoSim;
+                    if(!sim) {
+                        log('❌ Objeto simulador não encontrado.', 'error');
+                        return;
+                    }
+
+                    log('✅ Simulador encontrado!', 'success');
+                    log(`📊 Estado: ${sim.running ? 'Rodando' : 'Pausado'}`);
+                    log(`👥 Agentes: ${sim.herb.length} herbívoros, ${sim.carn.length} carnívoros`);
+                    log(`🌱 Plantas: ${sim.grid.length} células`);
+                    log(`📏 Canvas: ${sim.W}x${sim.H}`);
+                    log(`⚡ FPS: ${sim.fps}`);
+
+                    updateStateDisplay(sim);
+                } catch(e) {
+                    log(`❌ Erro ao acessar simulador: ${e.message}`, 'error');
+                }
+            }, 2000);
+        }
+
+        function forceRedraw() {
+            log('🔄 Tentando forçar redesenho...');
+            const simulatorWindow = window.open('', 'simulator');
+            if(simulatorWindow && simulatorWindow.window.forceRedraw) {
+                simulatorWindow.window.forceRedraw();
+                log('✅ Redesenho solicitado', 'success');
+            } else {
+                log('❌ Janela do simulador não encontrada', 'error');
+            }
+        }
+
+        function testSimulation() {
+            log('🧪 Testando simulação...');
+            const simulatorWindow = window.open('', 'simulator');
+            if(simulatorWindow && simulatorWindow.window.testSimulation) {
+                simulatorWindow.window.testSimulation();
+                log('✅ Teste solicitado', 'success');
+            } else {
+                log('❌ Janela do simulador não encontrada', 'error');
+            }
+        }
+
+        function openSimulator() {
+            window.open('http://localhost:8080/simulador-ecossistema.html', 'simulator');
+            log('🌐 Simulador aberto em nova aba', 'success');
+        }
+
+        function updateStateDisplay(sim) {
+            const stateContainer = document.getElementById('stateContainer');
+            stateContainer.innerHTML = `
+                <strong>Estado da Simulação:</strong><br>
+                • Rodando: ${sim.running ? '✅' : '❌'}<br>
+                • Herbívoros: ${sim.herb.length}<br>
+                • Carnívoros: ${sim.carn.length}<br>
+                • Células de plantas: ${sim.grid.length}<br>
+                • Dimensões: ${sim.W}x${sim.H}<br>
+                • FPS: ${sim.fps}<br>
+                • Tempo: ${sim.time.toFixed(1)}s<br>
+                • Velocidade: ${sim.speed}x<br>
+            `;
+        }
+
+        // Inicialização
+        log('🔧 Debug inicializado');
+        log('💡 Use os botões acima para diagnosticar problemas');
+        log('📝 Verifique o console do navegador (F12) para mais detalhes');
+    </script>
+</body>
+</html>
+

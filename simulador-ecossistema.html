@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Simulador de Ecossistema — Plantas, Herbívoros e Carnívoros</title>
+<style>
+  :root{
+    --bg:#0f1220;        /* fundo escuro elegante */
+    --panel:#171a2b;     /* painéis */
+    --card:#1e2340;      /* cartões */
+    --muted:#7a88b8;     /* texto secundário */
+    --text:#e5ecff;      /* texto principal */
+    --accent:#7dd3fc;    /* ciano */
+    --ok:#34d399;        /* verde */
+    --warn:#fbbf24;      /* amarelo */
+    --danger:#f87171;    /* vermelho */
+    --blue:#60a5fa;      /* azul */
+    --green:#22c55e;     /* verde vivo */
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:linear-gradient(160deg, #0c0f1a, var(--bg));
+    color:var(--text); font:500 14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, 'Helvetica Neue', Arial;
+  }
+  .wrap{
+    display:grid; grid-template-columns: 2fr 1fr; gap:16px; height:100vh; padding:16px;
+  }
+  @media (max-width: 1100px){ .wrap{ grid-template-columns: 1fr; grid-auto-rows: minmax(120px, auto); height:auto; }}
+  .panel{
+    background:linear-gradient(180deg, var(--panel), #121528); border-radius:16px; box-shadow:0 6px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.06); overflow:hidden;
+  }
+  header{
+    padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.06); display:flex; align-items:center; justify-content:space-between;
+    background:linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+  }
+  header h1{font-size:16px; margin:0; letter-spacing:.3px}
+  .badges{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .badge{font-size:12px; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.06); color:var(--muted); border:1px solid rgba(255,255,255,.08)}
+  .world{position:relative; height:100%;}
+  canvas#world{
+    display:block; width:100%; height:calc(100% - 46px); background:#080a14; cursor:crosshair;
+  }
+  /* HUD sobre o canvas */
+  .hud{
+    position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.35);
+    border:1px solid rgba(255,255,255,.08); color:#c7d2fe; padding:6px 8px; border-radius:8px;
+    font-size:12px; pointer-events:none; backdrop-filter: blur(2px);
+  }
+  .hud .muted{ color:var(--muted) }
+  .side{ display:grid; grid-template-rows:auto auto 1fr; gap:12px; }
+  .card{ background:linear-gradient(180deg, var(--card), #121528); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:12px; }
+  .card h2{ margin:0 0 8px; font-size:14px; color:#c7d2fe; letter-spacing:.2px }
+  .stats{ display:grid; grid-template-columns: repeat(3,1fr); gap:8px; }
+  .stat{ background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:10px; }
+  .stat .label{ color:var(--muted); font-size:11px }
+  .stat .value{ font-size:18px; margin-top:4px }
+  .legend{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:12px; color:var(--muted); }
+  .dot{width:10px; height:10px; border-radius:999px; display:inline-block}
+  .dot.plant{ background:#22c55e }
+  .dot.herb{ background:#60a5fa }
+  .dot.carn{ background:#f87171 }
+  .charts{ display:grid; grid-template-columns:1fr; gap:10px; }
+  .chart{ height:140px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; position:relative; overflow:hidden }
+  .chart canvas{ width:100%; height:100%; }
+  .controls{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .row{ display:grid; grid-template-columns: 1fr auto 60px; gap:8px; align-items:center; }
+  .row label{ font-size:12px; color:var(--muted) }
+  .row input[type=range]{ width:100% }
+  .row .out{ font-size:12px; text-align:right; color:#e5ecff }
+  .tools{ display:flex; gap:8px; flex-wrap:wrap; }
+  button, .toggle{ background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)); color:var(--text); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:600 }
+  button:hover{ filter:brightness(1.06) }
+  .toggle{ display:flex; gap:8px; align-items:center }
+  .small{ font-size:12px; color:var(--muted); margin-top:6px }
+  .footer{ padding:10px; font-size:11px; color:var(--muted); text-align:center }
+  .kbd{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background:rgba(255,255,255,.06); padding:1px 6px; border-radius:6px; border:1px solid rgba(255,255,255,.12) }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Mundo -->
+    <section class="panel world" id="worldPanel">
+      <header>
+        <h1>Simulador de Ecossistema</h1>
+        <div class="badges">
+          <span class="badge">Plantas: <span id="plantCoverage">--</span>%</span>
+          <span class="badge">FPS: <span id="fps">--</span></span>
+          <span class="badge">Velocidade ×<span id="speedOut">1.0</span></span>
+          <span class="badge" id="testsBadge">Tests: —</span>
+        </div>
+      </header>
+      <canvas id="world" title="Clique: plantas • Shift: herbívoro • Alt: carnívoro"></canvas>
+      <div class="hud" id="hud">Clique pinta plantas • Shift: herbívoro • Alt: carnívoro · Espaço: pausar/continuar</div>
+    </section>
+
+    <!-- Painel lateral -->
+    <aside class="side">
+      <div class="card">
+        <h2>Populações & Indicadores</h2>
+        <div class="stats">
+          <div class="stat"><div class="label">Herbívoros</div><div class="value" id="herbCount">--</div></div>
+          <div class="stat"><div class="label">Carnívoros</div><div class="value" id="carnCount">--</div></div>
+          <div class="stat"><div class="label">Biomassa (plantas)</div><div class="value" id="plantBiomass">--</div></div>
+          <div class="stat"><div class="label">Nascimentos</div><div class="value" id="births">--</div></div>
+          <div class="stat"><div class="label">Mortes</div><div class="value" id="deaths">--</div></div>
+          <div class="stat"><div class="label">Idade média</div><div class="value" id="avgAge">--</div></div>
+        </div>
+        <div class="legend" style="margin-top:8px">
+          <span class="dot plant"></span> Plantas
+          <span class="dot herb"></span> Herbívoros
+          <span class="dot carn"></span> Carnívoros
+        </div>
+      </div>
+
+      <div class="card charts">
+        <h2>Séries Temporais</h2>
+        <div class="chart"><canvas id="chartPop"></canvas></div>
+        <div class="chart"><canvas id="chartRates"></canvas></div>
+        <div class="small">Dicas: clique/tocar no mundo para adicionar plantas (<span class="kbd">Shift</span>+clique = herbívoros, <span class="kbd">Alt</span>+clique = carnívoros). Arraste para "pintar" plantas.</div>
+      </div>
+
+      <div class="card">
+        <h2>Controles</h2>
+        <div class="tools" style="margin-bottom:8px">
+          <button id="toggleRun">⏸️ Pausar</button>
+          <button id="resetBtn">🔄 Resetar</button>
+          <button id="randomBtn">🎲 Aleatorizar</button>
+          <label class="toggle"><input type="checkbox" id="autoBalance" checked title="Ajusta parâmetros automaticamente para manter populações estáveis"/> AI de equilíbrio</label>
+          <label class="toggle"><input type="checkbox" id="debugVision" title="Exibe o raio de visão dos agentes"/> Mostrar visão</label>
+        </div>
+        <div class="tools" style="margin-bottom:8px">
+          <button id="presetBalanced" title="Configuração equilibrada geral">⚖️ Balanceado</button>
+          <button id="presetHerb" title="Muitas plantas e herbívoros; pressão de predação menor">🌿 Boom Herbívoros</button>
+          <button id="presetCarn" title="Mais energia de presa e visão de predadores">🦊 Boom Carnívoros</button>
+          <button id="restoreDefaults" title="Restaura parâmetros padrão do simulador">↩️ Padrões</button>
+        </div>
+        <div class="controls">
+          <div class="row"><label>Velocidade da simulação</label><input type="range" id="speed" min="0.2" max="5" step="0.1" value="1" title="Multiplicador do tempo de simulação"><div class="out" id="speedOut2">1.0</div></div>
+          <div class="row"><label>Crescimento das plantas</label><input type="range" id="plantGrowth" min="0.001" max="0.03" step="0.001" value="0.01" title="Taxa base de crescimento por célula"><div class="out" id="plantGrowthOut">0.010</div></div>
+          <div class="row"><label>Difusão/semeadura</label><input type="range" id="plantSpread" min="0" max="0.4" step="0.01" value="0.08" title="Quanto as plantas se espalham para células vizinhas"><div class="out" id="plantSpreadOut">0.08</div></div>
+          <div class="row"><label>Herbívoros — visão</label><input type="range" id="herbVision" min="20" max="200" step="5" value="100" title="Alcance de percepção de predadores e comida"><div class="out" id="herbVisionOut">100</div></div>
+          <div class="row"><label>Herbívoros — metabolismo</label><input type="range" id="herbMeta" min="0.01" max="0.2" step="0.005" value="0.06" title="Consumo de energia por segundo"><div class="out" id="herbMetaOut">0.060</div></div>
+          <div class="row"><label>Herbívoros — energia por mordida</label><input type="range" id="plantEnergy" min="0.05" max="2" step="0.05" value="0.7" title="Energia recebida por unidade de planta"><div class="out" id="plantEnergyOut">0.70</div></div>
+          <div class="row"><label>Carnívoros — visão</label><input type="range" id="carnVision" min="30" max="260" step="5" value="140" title="Alcance de percepção de presas e parceiros"><div class="out" id="carnVisionOut">140</div></div>
+          <div class="row"><label>Carnívoros — metabolismo</label><input type="range" id="carnMeta" min="0.01" max="0.3" step="0.005" value="0.09" title="Consumo de energia por segundo"><div class="out" id="carnMetaOut">0.090</div></div>
+          <div class="row"><label>Energia por presa</label><input type="range" id="meatEnergy" min="1" max="8" step="0.1" value="3.5" title="Energia recebida ao capturar um herbívoro"><div class="out" id="meatEnergyOut">3.5</div></div>
+          <div class="row"><label>Limite máx. de agentes</label><input type="range" id="maxAgents" min="50" max="600" step="10" value="300" title="População máxima combinada de agentes"><div class="out" id="maxAgentsOut">300</div></div>
+        </div>
+      </div>
+
+      <div class="footer">Feito em arquivo único. Comportamentos guiados por <em>Utility AI</em> + regulador de equilíbrio (opcional).</div>
+    </aside>
+  </div>
+
+<script>
+(function(){
+  // ====== Utilidades ======
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const rand=(a,b)=>a + Math.random()*(b-a);
+  const dist2=(a,b)=>{const dx=a.x-b.x, dy=a.y-b.y; return dx*dx+dy*dy};
+  const lerp=(a,b,t)=>a+(b-a)*t;
+
+  // ====== Canvas & Layout ======
+  const worldCanvas=document.getElementById('world');
+  const ctx=worldCanvas.getContext('2d');
+  const panel=document.getElementById('worldPanel');
+  const panelHeader=panel.querySelector('header');
+  const hudEl=document.getElementById('hud');
+
+  // Throttle do ResizeObserver para evitar "loop completed with undelivered notifications"
+  let resizeScheduled=false;
+  function resizeFromRect(rect){
+    const headerH = panelHeader ? panelHeader.getBoundingClientRect().height : 46;
+    // Ajuste do canvas com suporte a HiDPI (devicePixelRatio)
+    const displayW = Math.max(200, Math.floor(rect.width));
+    const displayH = Math.max(150, Math.floor(rect.height - headerH));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    // Atualiza tamanho CSS
+    worldCanvas.style.width = displayW + 'px';
+    worldCanvas.style.height = displayH + 'px';
+    // Atualiza buffer interno (pixels reais)
+    const bufferW = Math.floor(displayW * dpr);
+    const bufferH = Math.floor(displayH * dpr);
+    if(worldCanvas.width!==bufferW || worldCanvas.height!==bufferH){
+      worldCanvas.width=bufferW;
+      worldCanvas.height=bufferH;
+    }
+    // Sistema de coordenadas em pixels CSS
+    if(ctx) ctx.setTransform(dpr,0,0,dpr,0,0);
+    sim.W=displayW; sim.H=displayH;
+  }
+  function handleResize(){
+    const rect=panel.getBoundingClientRect();
+    resizeFromRect(rect);
+  }
+  const ro=new ResizeObserver((entries)=>{
+    const rect=entries[0].contentRect;
+    if(resizeScheduled) return;
+    resizeScheduled=true;
+    // Deferir para o próximo frame p/ não aninhar leituras/escritas de layout dentro do callback
+    requestAnimationFrame(()=>{ resizeFromRect(rect); resizeScheduled=false; });
+  });
+  ro.observe(panel);
+  window.addEventListener('load', handleResize);
+  window.addEventListener('resize', ()=>{ if(!resizeScheduled){ resizeScheduled=true; requestAnimationFrame(()=>{ handleResize(); resizeScheduled=false; }); }});
+
+  // ====== Estado do Simulador ======
+  const sim={
+    running:true, W:800,H:500, time:0, dt:1/60, speed:1,
+    renderFPS:60,
+    debugLogs:false,
+    // Grid de plantas
+    gridW: 96, gridH: 64, grid:[], growth:0.01, spread:0.08,
+    // Agentes
+    herb:[], carn:[], maxAgents:300,
+    births:0, deaths:0,
+    params:{
+      herbVision:100, carnVision:140, herbMeta:0.06, carnMeta:0.09,
+      plantEnergy:0.7, meatEnergy:3.5,
+      herbMaxEnergy:8, carnMaxEnergy:12,
+      herbBite:0.15,
+      herbSpeed:55, carnSpeed:75,
+      herbAccel:120, carnAccel:160, drag:1.6,
+      herbReproThresh:6.0, carnReproThresh:9.0,
+      reproCost:0.5, reproCooldown:12,
+      // Pesos de decisão
+      fearWeight:1.2, huntWeight:1.0, eatWeight:0.9, mateWeight:0.6, wanderWeight:0.25,
+      // Maturidade e reprodução
+      maturityAgeHerb:20, maturityAgeCarn:25, matePriorityBoost:0.6,
+      mateRadiusHerb:22, mateRadiusCarn:24,
+      // Defesa de presas e risco de ferimento ao atacar
+      packRadius:26, packDefenseBase:0.15, packDefenseHerbFactor:0.12, packDefenseCarnFactor:0.18,
+      injuryEnergyLoss:1.4, injurySlow:0.85, injuryCooldown:4.0,
+      // Descanso pós-caça: carnívoro foca em parceiros por alguns segundos
+      postHuntDelay: 5.0,
+    },
+    autoBalance:true, debugVision:false,
+    target:{ herb:120, carn:28, plantCoverage:60 },
+    charts:{ pop:[], rates:[], maxLen:360 },
+    fps:0
+  };
+
+  // ====== Grid de plantas ======
+  function initPlants(){
+    const N=sim.gridW*sim.gridH; sim.grid=new Float32Array(N);
+    for(let i=0;i<N;i++) sim.grid[i]=Math.random() < 0.85 ? rand(0.4,0.9) : rand(0.05,0.25);
+    // Preparar buffer offscreen para plantas
+    plantCanvas = document.createElement('canvas');
+    plantCanvas.width = sim.gridW; plantCanvas.height = sim.gridH;
+    pctx = plantCanvas.getContext('2d');
+    plantImg = pctx.createImageData(sim.gridW, sim.gridH);
+  }
+  function idx(x,y){ return y*sim.gridW + x }
+  function samplePlant(px,py){
+    const gx=Math.floor(clamp(px/sim.W*sim.gridW,0,sim.gridW-1));
+    const gy=Math.floor(clamp(py/sim.H*sim.gridH,0,sim.gridH-1));
+    return {gx,gy, value: sim.grid[idx(gx,gy)]};
+  }
+  function eatPlant(px,py, amount){
+    // Corrigido: s.gzx -> s.gx (typo)
+    const s=samplePlant(px,py); const i=idx(s.gx, s.gy);
+    const take=Math.min(sim.grid[i], amount); sim.grid[i]-=take; return take;
+  }
+  function growPlants(dt){
+    const w=sim.gridW,h=sim.gridH, g=sim.growth;
+    // Crescimento logístico + leve difusão
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+        const i=idx(x,y);
+        const v=sim.grid[i];
+        const growth = g * (1 - v); // logistic
+        sim.grid[i] = clamp(v + growth*dt, 0, 1);
+      }
+    }
+    // Difusão/semeadura simples
+    const s=sim.spread;
+    if(s>0){
+      for(let y=1;y<h-1;y++){
+        for(let x=1;x<w-1;x++){
+          const i=idx(x,y);
+          const v=sim.grid[i];
+          let sum=0; sum+=sim.grid[idx(x-1,y)]+sim.grid[idx(x+1,y)]+sim.grid[idx(x,y-1)]+sim.grid[idx(x,y+1)];
+          const avg=sum*0.25; sim.grid[i]=clamp(lerp(v, avg, s*dt), 0, 1);
+        }
+      }
+    }
+  }
+
+  // ====== Agentes ======
+  class Agent{
+    constructor(x,y){ this.x=x; this.y=y; this.vx=rand(-1,1); this.vy=rand(-1,1); this.energy=1; this.age=0; this.cool=0; }
+    wrap(){ if(this.x<0) this.x+=sim.W; if(this.x>sim.W) this.x-=sim.W; if(this.y<0) this.y+=sim.H; if(this.y>sim.H) this.y-=sim.H; }
+    dirTo(tx,ty){ const dx=tx-this.x, dy=ty-this.y; const d=Math.hypot(dx,dy)||1; return {dx:dx/d, dy:dy/d, d}; }
+  }
+  class Herb extends Agent{
+    constructor(x,y){ super(x,y); this.energy=rand(3,6); this.type='herb'; this.wanderAng=Math.random()*Math.PI*2; }
+    step(dt){
+      const P=sim.params; this.age+=dt; if(this.cool>0) this.cool-=dt;
+      const fearRad=sim.params.herbVision*0.9;
+      // Sensores: predador mais próximo, célula de planta mais nutritiva nas proximidades, parceiro
+      let nearestPred=null, nd2=1e15;
+      for(const c of sim.carn){ const d2= (this.x-c.x)*(this.x-c.x)+(this.y-c.y)*(this.y-c.y); if(d2<nd2){ nd2=d2; nearestPred=c; } }
+      const predatorClose = nearestPred && nd2 < fearRad*fearRad;
+
+      // Explorar vizinhança por plantas (raio visão)
+      const vision = sim.params.herbVision;
+      // Amostras radiais
+      let bestDir={dx:0,dy:0}, bestV=0;
+      const samples=16;
+      for(let i=0;i<samples;i++){
+        const a=i*(Math.PI*2/samples);
+        const rx=this.x+Math.cos(a)*vision, ry=this.y+Math.sin(a)*vision;
+        const s=samplePlant(clamp(rx,0,sim.W-1), clamp(ry,0,sim.H-1));
+        if(s.value>bestV){ bestV=s.value; bestDir.dx=Math.cos(a); bestDir.dy=Math.sin(a); }
+      }
+      // Parceiro para reprodução (maturidade amplia busca)
+      const maturedH = this.age >= P.maturityAgeHerb;
+      let mate=null, md2=1e12; if(this.energy> P.herbReproThresh && this.cool<=0){
+        const mateVision = P.herbVision * (maturedH? 1.3 : 1.0);
+        const mvsq = mateVision*mateVision;
+        for(const h of sim.herb){
+          if(h===this || h.cool>0 || h.energy<=P.herbReproThresh) continue;
+          const d2=dist2(this,h); if(d2<mvsq && d2<md2){ md2=d2; mate=h; }
+        }
+      }
+
+      // Utilidades
+      const hunger = clamp(1 - this.energy/P.herbMaxEnergy, 0, 1);
+      const fear = predatorClose ? clamp((Math.sqrt(nd2)/fearRad),0,1) : 1; // menor distância => menor valor => mais medo => inverter abaixo
+      const fearU = predatorClose ? (1 - fear) * sim.params.fearWeight : 0;
+      const eatU = hunger * sim.params.eatWeight * (0.4 + 0.6*bestV);
+      let mateU = (this.energy>P.herbReproThresh && this.cool<=0 && mate) ? sim.params.mateWeight : 0;
+      if(mateU>0 && maturedH){ mateU *= (1 + P.matePriorityBoost); }
+      // Em populações muito baixas, reforçar reprodução
+      if(mateU>0 && sim.herb.length < sim.target.herb*0.5){ mateU *= 1.25; }
+      const wanderU = sim.params.wanderWeight;
+
+      // Direção desejada por comportamento dominante
+      let desired={dx:0,dy:0, speedF:0.75};
+      const mUeff = mateU;
+      if(fearU>0 && (!mate || fearU>=Math.max(eatU, mUeff*0.8))){
+        const d=this.dirTo(nearestPred.x, nearestPred.y); desired.dx=-d.dx; desired.dy=-d.dy; desired.speedF=1.0;
+      } else if (eatU>=mUeff) {
+        desired.dx=bestDir.dx; desired.dy=bestDir.dy; desired.speedF=0.85;
+      } else {
+        const d=this.dirTo(mate.x, mate.y); desired.dx=d.dx; desired.dy=d.dy; desired.speedF=0.9;
+      }
+      // Wander suave para evitar trajetórias rígidas
+      this.wanderAng += rand(-0.6,0.6)*dt;
+      desired.dx += Math.cos(this.wanderAng)*0.15; desired.dy += Math.sin(this.wanderAng)*0.15;
+      const dlen=Math.hypot(desired.dx, desired.dy)||1; desired.dx/=dlen; desired.dy/=dlen;
+
+      // Steering behavior: desired velocity - current velocity
+      const vmax=sim.params.herbSpeed;
+      const desiredSpeed = vmax*desired.speedF;
+      const dvx = desired.dx*desiredSpeed - this.vx;
+      const dvy = desired.dy*desiredSpeed - this.vy;
+      let steerX=dvx, steerY=dvy; const steerLen=Math.hypot(steerX,steerY)||1;
+      const fearBoost = 1 + 1.2*clamp(fearU,0,1);
+      const maxAccel = sim.params.herbAccel * fearBoost;
+      const maxStep = maxAccel*dt;
+      if(steerLen>maxStep){ steerX*=maxStep/steerLen; steerY*=maxStep/steerLen; }
+      this.vx += steerX; this.vy += steerY;
+      // Damping e clamp de velocidade
+      const damp=Math.exp(-sim.params.drag*dt); this.vx*=damp; this.vy*=damp;
+      const vlen=Math.hypot(this.vx,this.vy);
+      if(vlen>vmax){ this.vx*=vmax/vlen; this.vy*=vmax/vlen; }
+      this.x += this.vx*dt; this.y += this.vy*dt; this.wrap();
+
+      // Comer
+      const bite = eatPlant(this.x, this.y, sim.params.herbBite);
+      if(bite>0){ this.energy = Math.min(sim.params.herbMaxEnergy, this.energy + bite*sim.params.plantEnergy); }
+
+      // Metabolismo
+      this.energy -= sim.params.herbMeta*dt*(1+0.25*(Math.hypot(this.vx,this.vy)/(sim.params.herbSpeed||1)));
+
+      // Reproduzir (raio levemente maior para facilitar encontro)
+      if(mate && Math.sqrt(md2)<P.mateRadiusHerb && this.energy> P.herbReproThresh && mate.energy> P.herbReproThresh && this.cool<=0 && mate.cool<=0 && (sim.herb.length+sim.carn.length)<sim.maxAgents){
+        this.energy -= P.reproCost; mate.energy -= P.reproCost;
+        const b=new Herb((this.x+mate.x)/2 + rand(-6,6), (this.y+mate.y)/2 + rand(-6,6));
+        b.energy = 2.2; b.cool = P.reproCooldown*0.5;
+        sim.herb.push(b); sim.births++;
+        this.cool = mate.cool = P.reproCooldown;
+      }
+
+      // Morte
+      if(this.energy<=0 || this.age>180){ killAgent(this); }
+    }
+  }
+  class Carn extends Agent{
+    constructor(x,y){ super(x,y); this.energy=rand(4,7); this.type='carn'; this.injTs=0; this.noHuntTs=0; this.wanderAng=Math.random()*Math.PI*2; }
+    step(dt){
+      const P=sim.params; this.age+=dt; if(this.cool>0) this.cool-=dt;
+      // Caçar herbívoro mais próximo (desativado durante o descanso pós-caça)
+      let prey=null, best=1e15, hasPrey=false;
+      const canHunt = !(this.noHuntTs>sim.time);
+      if(canHunt){
+        const vision=sim.params.carnVision;
+        for(const h of sim.herb){ const d2=dist2(this,h); if(d2<best){ best=d2; prey=h; } }
+        hasPrey = !!(prey && best < vision*vision);
+      }
+      // Parceiro
+      let mate=null, md2=1e12; if(this.energy>P.carnReproThresh && this.cool<=0){
+        const maturedC = this.age >= P.maturityAgeCarn;
+        const mateVision = P.carnVision * (maturedC? 1.2 : 1.0);
+        const mvsq = mateVision*mateVision;
+        for(const c of sim.carn){ if(c===this || c.cool>0 || c.energy<=P.carnReproThresh) continue; const d2=dist2(this,c); if(d2<mvsq && d2<md2){ md2=d2; mate=c; } }
+      }
+      // Utilidades
+      const hunger = clamp(1 - this.energy/P.carnMaxEnergy, 0, 1);
+      const huntU = hasPrey ? sim.params.huntWeight*(0.5+0.5*hunger) : 0;
+      let mateU = (this.energy>P.carnReproThresh && this.cool<=0 && mate) ? sim.params.mateWeight*0.8 : 0;
+      if(mateU>0 && this.age>=P.maturityAgeCarn){ mateU *= (1 + P.matePriorityBoost*0.8); }
+      const wanderU = sim.params.wanderWeight*0.8;
+
+      // Direção desejada
+      let desired={dx:0,dy:0, speedF:0.8};
+      if(huntU>=mateU && hasPrey){ const d=this.dirTo(prey.x, prey.y); desired.dx=d.dx; desired.dy=d.dy; desired.speedF=1.0; }
+      else if(mate){ const d=this.dirTo(mate.x, mate.y); desired.dx=d.dx; desired.dy=d.dy; desired.speedF=0.9; }
+      else { desired.dx=Math.cos(this.wanderAng); desired.dy=Math.sin(this.wanderAng); desired.speedF=0.6; }
+      this.wanderAng += rand(-0.6,0.6)*dt;
+      const dlen=Math.hypot(desired.dx, desired.dy)||1; desired.dx/=dlen; desired.dy/=dlen;
+
+      // Steering
+      const injFactor = (this.injTs>sim.time? P.injurySlow : 1.0);
+      const vmax=sim.params.carnSpeed * injFactor;
+      const desiredSpeed = vmax*desired.speedF;
+      let dvx = desired.dx*desiredSpeed - this.vx;
+      let dvy = desired.dy*desiredSpeed - this.vy;
+      let steerX=dvx, steerY=dvy; const steerLen=Math.hypot(steerX,steerY)||1;
+      const maxAccel = sim.params.carnAccel * injFactor;
+      const maxStep = maxAccel*dt; if(steerLen>maxStep){ steerX*=maxStep/steerLen; steerY*=maxStep/steerLen; }
+      this.vx += steerX; this.vy += steerY;
+      const damp=Math.exp(-sim.params.drag*dt); this.vx*=damp; this.vy*=damp;
+      const vlen=Math.hypot(this.vx,this.vy); if(vlen>vmax){ this.vx*=vmax/vlen; this.vy*=vmax/vlen; }
+      this.x += this.vx*dt; this.y += this.vy*dt; this.wrap();
+
+      // Comer (colisão) com risco de ferimento influenciado por grupos
+      if(hasPrey && best < 100){
+        const pr = P.packRadius;
+        let hn=0; for(const h of sim.herb){ if(h!==prey && dist2(prey,h) < pr*pr) hn++; }
+        let cn=0; for(const c2 of sim.carn){ if(c2!==this && dist2(this,c2) < pr*pr) cn++; }
+        const base=P.packDefenseBase, hf=P.packDefenseHerbFactor, cf=P.packDefenseCarnFactor;
+        const pInjury = clamp(base * (1 + hf*Math.max(0,hn)) * (1 - cf*Math.max(0,cn)), 0, 0.9);
+        const injured = Math.random()<pInjury;
+        // Chance de captura falhar quando ferido; pacotes aumentam sucesso
+        const pCatch = clamp(1 - pInjury*0.6 + 0.08*Math.max(0,cn), 0.2, 1.0);
+        const caught = Math.random()<pCatch;
+        if(injured){ this.energy = Math.max(0, this.energy - P.injuryEnergyLoss); this.injTs = sim.time + P.injuryCooldown; }
+        if(caught){
+          removeHerb(prey);
+          sim.deaths++;
+          this.energy = Math.min(P.carnMaxEnergy, this.energy + P.meatEnergy);
+          // Ativa janela pós-caça: não procurar presas, priorizar parceiros
+          this.noHuntTs = sim.time + P.postHuntDelay;
+        }
+      }
+      // Metabolismo
+      this.energy -= P.carnMeta*dt*(1+0.2*(Math.hypot(this.vx,this.vy)/(sim.params.carnSpeed||1)));
+
+      // Reproduzir (raio levemente maior para facilitar encontro)
+      if(mate && Math.sqrt(md2)<P.mateRadiusCarn && this.energy>P.carnReproThresh && mate.energy>P.carnReproThresh && this.cool<=0 && mate.cool<=0 && (sim.herb.length+sim.carn.length)<sim.maxAgents){
+        this.energy -= P.reproCost; mate.energy -= P.reproCost;
+        const b=new Carn((this.x+mate.x)/2 + rand(-6,6), (this.y+mate.y)/2 + rand(-6,6));
+        b.energy=3.0; b.cool = P.reproCooldown*0.7; sim.carn.push(b); sim.births++;
+        this.cool = mate.cool = P.reproCooldown;
+      }
+
+      if(this.energy<=0 || this.age>220){ killAgent(this); }
+    }
+  }
+
+  function killAgent(a){
+    if(a.type==='herb') removeHerb(a); else removeCarn(a);
+    sim.deaths++;
+  }
+  function removeHerb(h){
+    const i = sim.herb.indexOf(h);
+    if(i >= 0) {
+      sim.herb.splice(i, 1);
+      // Limpar elementos undefined que podem ter sido criados
+      sim.herb = sim.herb.filter(agent => agent !== undefined);
+    }
+  }
+  function removeCarn(c){
+    const i = sim.carn.indexOf(c);
+    if(i >= 0) {
+      sim.carn.splice(i, 1);
+      // Limpar elementos undefined que podem ter sido criados
+      sim.carn = sim.carn.filter(agent => agent !== undefined);
+    }
+  }
+
+  function spawnHerb(n){ for(let i=0;i<n;i++){ sim.herb.push(new Herb(rand(0,sim.W), rand(0,sim.H))); } }
+  function spawnCarn(n){ for(let i=0;i<n;i++){ sim.carn.push(new Carn(rand(0,sim.W), rand(0,sim.H))); } }
+
+  // ====== Regulador de equilíbrio (AI Governor) ======
+  let balanceTimer=0;
+  function autoBalance(dt){
+    if(!sim.autoBalance) return;
+    balanceTimer+=dt; if(balanceTimer<2.5) return; balanceTimer=0;
+    // Alvos
+    const H=sim.herb.length, C=sim.carn.length;
+    const cov = plantCoverage();
+    // Se herbívoros muito baixos, facilitar recurso e reduzir pressão
+    if(H < sim.target.herb*0.6){ sim.growth = clamp(sim.growth*1.04, 0.001, 0.03); sim.params.carnMeta = clamp(sim.params.carnMeta*1.04, 0.01, 0.3); }
+    if(H > sim.target.herb*1.6){ sim.growth = clamp(sim.growth*0.97, 0.001, 0.03); sim.params.carnMeta = clamp(sim.params.carnMeta*0.97, 0.01, 0.3); }
+    // Se carnívoros muito baixos, aumentar energia de presa
+    if(C < sim.target.carn*0.6){ sim.params.meatEnergy = clamp(sim.params.meatEnergy*1.03, 1, 8); sim.params.carnReproThresh = clamp(sim.params.carnReproThresh*0.97, 6, 12); }
+    if(C > sim.target.carn*1.6){ sim.params.meatEnergy = clamp(sim.params.meatEnergy*0.97, 1, 8); sim.params.carnReproThresh = clamp(sim.params.carnReproThresh*1.02, 6, 12); }
+    // Cobertura de plantas
+    if(cov < sim.target.plantCoverage*0.8){ sim.growth = clamp(sim.growth*1.05, 0.001, 0.03); }
+    if(cov > sim.target.plantCoverage*1.2){ sim.growth = clamp(sim.growth*0.96, 0.001, 0.03); }
+  }
+
+  function plantCoverage(){
+    const N=sim.grid.length; let sum=0; for(let i=0;i<N;i++) sum+=sim.grid[i];
+    // 1.0 por célula → 100% se todas cheias
+    return Math.round((sum/N)*100);
+  }
+
+  // ====== Desenho ======
+  // Buffer offscreen para plantas
+  let plantCanvas=null, pctx=null, plantImg=null;
+  function draw(){
+    // Verificar se canvas está disponível
+    if(!ctx || !worldCanvas) {
+      console.error('❌ Canvas não encontrado!');
+      return;
+    }
+
+    // fundo
+    ctx.clearRect(0,0,sim.W,sim.H);
+    // plantas: atualizar imagem offscreen 1:1 com o grid e desenhar escalado
+    if(plantImg && pctx){
+      const data=plantImg.data; let k=0; // RGBA
+      for(let y=0;y<sim.gridH;y++){
+        for(let x=0;x<sim.gridW;x++){
+          const v=sim.grid[idx(x,y)];
+          const g=Math.floor(lerp(16, 180, v));
+          const rr = Math.floor(g*0.3);
+          const gg = g;
+          const bb = Math.floor(g*0.5);
+          data[k++] = rr; // R
+          data[k++] = gg; // G
+          data[k++] = bb; // B
+          data[k++] = 217; // A ~0.85
+        }
+      }
+      pctx.putImageData(plantImg, 0, 0);
+      ctx.save();
+      ctx.imageSmoothingEnabled=false;
+      ctx.drawImage(plantCanvas, 0, 0, sim.W, sim.H);
+      ctx.restore();
+    }
+    // Herbívoros (azul)
+    for(let i = sim.herb.length - 1; i >= 0; i--) {
+      const h = sim.herb[i];
+      if(!h) continue; // Pular elementos undefined
+      const r = 4 + Math.min(5, h.energy * 0.5);
+      ctx.beginPath(); ctx.fillStyle='#60a5fa'; ctx.arc(h.x, h.y, r, 0, Math.PI*2); ctx.fill();
+      if(sim.debugVision){ ctx.beginPath(); ctx.strokeStyle='rgba(96,165,250,.18)'; ctx.arc(h.x, h.y, sim.params.herbVision, 0, Math.PI*2); ctx.stroke(); }
+    }
+
+    // Carnívoros (vermelho triângulo apontando a direção)
+    for(let i = sim.carn.length - 1; i >= 0; i--) {
+      const c = sim.carn[i];
+      if(!c) continue; // Pular elementos undefined
+      const ang = Math.atan2(c.vy, c.vx);
+      const size = 6 + Math.min(7, c.energy * 0.5);
+      ctx.fillStyle='#f87171';
+      ctx.beginPath();
+      ctx.moveTo(c.x + Math.cos(ang)*size, c.y + Math.sin(ang)*size);
+      ctx.lineTo(c.x + Math.cos(ang+2.5)*size*0.9, c.y + Math.sin(ang+2.5)*size*0.9);
+      ctx.lineTo(c.x + Math.cos(ang-2.5)*size*0.9, c.y + Math.sin(ang-2.5)*size*0.9);
+      ctx.closePath(); ctx.fill();
+      if(sim.debugVision){
+        // Raio de visão do carnívoro
+        ctx.beginPath(); ctx.strokeStyle='rgba(248,113,113,.18)'; ctx.arc(c.x, c.y, sim.params.carnVision, 0, Math.PI*2); ctx.stroke();
+        // Indicador de descanso pós-caça: anel amarelo quando não está caçando
+        if(c.noHuntTs && c.noHuntTs>sim.time){
+          ctx.beginPath(); ctx.strokeStyle='rgba(251,191,36,.6)'; ctx.lineWidth=1.5; ctx.arc(c.x, c.y, Math.max(8, size+2), 0, Math.PI*2); ctx.stroke(); ctx.lineWidth=1;
+        }
+      }
+    }
+    // Overlays
+    if(!sim.running){
+      ctx.save();
+      ctx.fillStyle='rgba(0,0,0,.4)';
+      ctx.fillRect(0,0,sim.W,sim.H);
+      ctx.fillStyle='#e5ecff';
+      ctx.font='600 18px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto';
+      ctx.textAlign='center';
+      ctx.fillText('Pausado — pressione Espaço para continuar', sim.W/2, sim.H/2);
+      ctx.restore();
+    }
+    if(hudEl){
+      hudEl.textContent = `Clique pinta plantas • Shift: herbívoro • Alt: carnívoro · Vel: ${sim.speed.toFixed(1)}× · H: ${sim.herb.length} · C: ${sim.carn.length}`;
+    }
+  }
+
+  // ====== Séries (gráficos custom) ======
+  const chartPop = document.getElementById('chartPop').getContext('2d');
+  const chartRates = document.getElementById('chartRates').getContext('2d');
+  function drawSeries(){
+    const W=chartPop.canvas.width=chartPop.canvas.clientWidth; const H=chartPop.canvas.height=chartPop.canvas.clientHeight;
+    const data=sim.charts.pop; if(data.length<2){
+      chartPop.clearRect(0,0,W,H);
+      const W2=chartRates.canvas.width=chartRates.canvas.clientWidth; const H2=chartRates.canvas.height=chartRates.canvas.clientHeight;
+      chartRates.clearRect(0,0,W2,H2);
+      return;
+    }
+    // fundo + grades
+    chartPop.clearRect(0,0,W,H);
+    chartPop.fillStyle='rgba(255,255,255,.04)'; chartPop.fillRect(0,0,W,H);
+    chartPop.strokeStyle='rgba(255,255,255,.1)';
+    for(let i=0;i<6;i++){ const y=i*H/5; chartPop.beginPath(); chartPop.moveTo(0,y); chartPop.lineTo(W,y); chartPop.stroke(); }
+
+    // Normalizar
+    const maxY=Math.max(10, ...data.map(d=>Math.max(d.herb,d.carn,d.plant)));
+    const sx=W/(data.length-1);
+    function series(ctx, key, color){
+      ctx.lineWidth=2; ctx.strokeStyle=color; ctx.beginPath();
+      for(let i=0;i<data.length;i++){
+        const x=i*sx; const y=H - (data[i][key]/maxY)*H;
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+    series(chartPop,'plant','#22c55e');
+    series(chartPop,'herb','#60a5fa');
+    series(chartPop,'carn','#f87171');
+
+    // Taxas (nascimentos e mortes por janela)
+    const W2=chartRates.canvas.width=chartRates.canvas.clientWidth; const H2=chartRates.canvas.height=chartRates.canvas.clientHeight;
+    const d2=sim.charts.rates; chartRates.clearRect(0,0,W2,H2);
+    const maxR=Math.max(1, ...d2.map(d=>Math.max(d.births,d.deaths)));
+    chartRates.fillStyle='rgba(255,255,255,.04)'; chartRates.fillRect(0,0,W2,H2);
+    chartRates.strokeStyle='rgba(255,255,255,.1)'; for(let i=0;i<6;i++){ const y=i*H2/5; chartRates.beginPath(); chartRates.moveTo(0,y); chartRates.lineTo(W2,y); chartRates.stroke(); }
+    const sx2=W2/(d2.length-1);
+    chartRates.strokeStyle='#34d399'; chartRates.beginPath(); for(let i=0;i<d2.length;i++){ const x=i*sx2; const y=H2 - (d2[i].births/maxR)*H2; if(i===0) chartRates.moveTo(x,y); else chartRates.lineTo(x,y);} chartRates.stroke();
+    chartRates.strokeStyle='#fbbf24'; chartRates.beginPath(); for(let i=0;i<d2.length;i++){ const x=i*sx2; const y=H2 - (d2[i].deaths/maxR)*H2; if(i===0) chartRates.moveTo(x,y); else chartRates.lineTo(x,y);} chartRates.stroke();
+  }
+
+  // ====== UI ======
+  const el={
+    herbCount:document.getElementById('herbCount'), carnCount:document.getElementById('carnCount'), plantBiomass:document.getElementById('plantBiomass'), births:document.getElementById('births'), deaths:document.getElementById('deaths'), avgAge:document.getElementById('avgAge'),
+    fps:document.getElementById('fps'), plantCoverage:document.getElementById('plantCoverage'), testsBadge:document.getElementById('testsBadge'),
+    speed:document.getElementById('speed'), speedOut:document.getElementById('speedOut'), speedOut2:document.getElementById('speedOut2'),
+    plantGrowth:document.getElementById('plantGrowth'), plantGrowthOut:document.getElementById('plantGrowthOut'),
+    plantSpread:document.getElementById('plantSpread'), plantSpreadOut:document.getElementById('plantSpreadOut'),
+    herbVision:document.getElementById('herbVision'), herbVisionOut:document.getElementById('herbVisionOut'),
+    herbMeta:document.getElementById('herbMeta'), herbMetaOut:document.getElementById('herbMetaOut'),
+    plantEnergy:document.getElementById('plantEnergy'), plantEnergyOut:document.getElementById('plantEnergyOut'),
+    carnVision:document.getElementById('carnVision'), carnVisionOut:document.getElementById('carnVisionOut'),
+    carnMeta:document.getElementById('carnMeta'), carnMetaOut:document.getElementById('carnMetaOut'),
+    meatEnergy:document.getElementById('meatEnergy'), meatEnergyOut:document.getElementById('meatEnergyOut'),
+    maxAgents:document.getElementById('maxAgents'), maxAgentsOut:document.getElementById('maxAgentsOut'),
+    autoBalance:document.getElementById('autoBalance'), debugVision:document.getElementById('debugVision'),
+    toggleRun:document.getElementById('toggleRun'), resetBtn:document.getElementById('resetBtn'), randomBtn:document.getElementById('randomBtn'),
+    presetBalanced:document.getElementById('presetBalanced'), presetHerb:document.getElementById('presetHerb'), presetCarn:document.getElementById('presetCarn'), restoreDefaults:document.getElementById('restoreDefaults'),
+  };
+  // Persistência: salvar (debounced) após alterações
+  function saveSettings(){
+    try{ localStorage.setItem('ecoSimSettings', JSON.stringify(getSettings())); }catch(e){ /* ignore */ }
+  }
+  let saveTimer=null; function saveSettingsDebounced(){ clearTimeout(saveTimer); saveTimer=setTimeout(saveSettings, 150); }
+
+  function bindRange(r, out, on){
+    const sync=()=>{
+      const step=parseFloat(r.step)||1;
+      const decimals= step<1 ? (step<0.1?3:2) : 0;
+      out.textContent=(+r.value).toFixed(decimals);
+      if(on) on(+r.value);
+      saveSettingsDebounced();
+    };
+    r.addEventListener('input', sync); sync();
+  }
+  bindRange(el.speed, el.speedOut2, v=>{
+    sim.speed=v; el.speedOut.textContent=v.toFixed(1);
+    // Ajuste automático da taxa de render conforme velocidade
+    if(v>=4) sim.renderFPS=30; else if(v>=2.5) sim.renderFPS=45; else sim.renderFPS=60;
+  });
+  bindRange(el.plantGrowth, el.plantGrowthOut, v=> sim.growth=v);
+  bindRange(el.plantSpread, el.plantSpreadOut, v=> sim.spread=v);
+  bindRange(el.herbVision, el.herbVisionOut, v=> sim.params.herbVision=v);
+  bindRange(el.herbMeta, el.herbMetaOut, v=> sim.params.herbMeta=v);
+  bindRange(el.plantEnergy, el.plantEnergyOut, v=> sim.params.plantEnergy=v);
+  bindRange(el.carnVision, el.carnVisionOut, v=> sim.params.carnVision=v);
+  bindRange(el.carnMeta, el.carnMetaOut, v=> sim.params.carnMeta=v);
+  bindRange(el.meatEnergy, el.meatEnergyOut, v=> sim.params.meatEnergy=v);
+  bindRange(el.maxAgents, el.maxAgentsOut, v=> sim.maxAgents=v|0);
+  el.autoBalance.addEventListener('change', e=>{ sim.autoBalance=e.target.checked; saveSettingsDebounced(); });
+  el.debugVision.addEventListener('change', e=>{ sim.debugVision=e.target.checked; saveSettingsDebounced(); });
+  el.toggleRun.addEventListener('click', ()=>{ sim.running=!sim.running; el.toggleRun.textContent= sim.running? '⏸️ Pausar' : '▶️ Continuar'; });
+  el.resetBtn.addEventListener('click', resetWorld);
+  el.randomBtn.addEventListener('click', ()=>{ randomize(true); });
+
+  // ====== Presets & Persistência ======
+  const defaultSettings = {
+    speed:1.0, growth:0.01, spread:0.08,
+    herbVision:100, herbMeta:0.06, plantEnergy:0.7,
+    carnVision:140, carnMeta:0.09, meatEnergy:3.5,
+    maxAgents:300, autoBalance:true, debugVision:false
+  };
+
+  function getSettings(){
+    return {
+      speed: sim.speed, growth: sim.growth, spread: sim.spread,
+      herbVision: sim.params.herbVision, herbMeta: sim.params.herbMeta, plantEnergy: sim.params.plantEnergy,
+      carnVision: sim.params.carnVision, carnMeta: sim.params.carnMeta, meatEnergy: sim.params.meatEnergy,
+      maxAgents: sim.maxAgents, autoBalance: sim.autoBalance, debugVision: sim.debugVision
+    };
+  }
+
+  function applySettings(s){
+    if(!s) return;
+    const setVal=(elInput, v)=>{ if(typeof v!=="number" && typeof v!=="string") return; elInput.value=String(v); elInput.dispatchEvent(new Event('input')); };
+    if('speed' in s) setVal(el.speed, s.speed);
+    if('growth' in s) setVal(el.plantGrowth, s.growth);
+    if('spread' in s) setVal(el.plantSpread, s.spread);
+    if('herbVision' in s) setVal(el.herbVision, s.herbVision);
+    if('herbMeta' in s) setVal(el.herbMeta, s.herbMeta);
+    if('plantEnergy' in s) setVal(el.plantEnergy, s.plantEnergy);
+    if('carnVision' in s) setVal(el.carnVision, s.carnVision);
+    if('carnMeta' in s) setVal(el.carnMeta, s.carnMeta);
+    if('meatEnergy' in s) setVal(el.meatEnergy, s.meatEnergy);
+    if('maxAgents' in s) setVal(el.maxAgents, s.maxAgents);
+    if('autoBalance' in s){ el.autoBalance.checked=!!s.autoBalance; el.autoBalance.dispatchEvent(new Event('change')); }
+    if('debugVision' in s){ el.debugVision.checked=!!s.debugVision; el.debugVision.dispatchEvent(new Event('change')); }
+  }
+
+  function loadSettings(){
+    try{
+      const raw=localStorage.getItem('ecoSimSettings'); if(!raw) return;
+      const s=JSON.parse(raw); applySettings(s);
+    }catch(e){ /* ignore */ }
+  }
+
+  function applyPreset(name){
+    if(name==='balanced') return applySettings(defaultSettings);
+    if(name==='herb') return applySettings({
+      growth:0.02, spread:0.15, speed:1.0,
+      herbVision:120, herbMeta:0.055, plantEnergy:1.1,
+      carnVision:120, carnMeta:0.11, meatEnergy:2.6,
+      maxAgents:320, autoBalance:true
+    });
+    if(name==='carn') return applySettings({
+      growth:0.008, spread:0.05, speed:1.0,
+      herbVision:90, herbMeta:0.07, plantEnergy:0.6,
+      carnVision:180, carnMeta:0.085, meatEnergy:5.0,
+      maxAgents:320, autoBalance:true
+    });
+  }
+
+  el.presetBalanced.addEventListener('click', ()=>{ applyPreset('balanced'); saveSettings(); });
+  el.presetHerb.addEventListener('click', ()=>{ applyPreset('herb'); saveSettings(); });
+  el.presetCarn.addEventListener('click', ()=>{ applyPreset('carn'); saveSettings(); });
+  el.restoreDefaults.addEventListener('click', ()=>{ applyPreset('balanced'); saveSettings(); });
+
+  // Atalhos de teclado
+  window.addEventListener('keydown', (e)=>{
+    if(e.code==='Space'){ e.preventDefault(); el.toggleRun.click(); }
+    if(e.key==='r' || e.key==='R'){ resetWorld(); }
+    if(e.key==='d' || e.key==='D'){ el.debugVision.checked=!el.debugVision.checked; el.debugVision.dispatchEvent(new Event('change')); }
+    if(e.key==='b' || e.key==='B'){ el.autoBalance.checked=!el.autoBalance.checked; el.autoBalance.dispatchEvent(new Event('change')); }
+    if(e.key==='+' || e.key==='='){ const v=Math.min(5, (sim.speed+0.1)); el.speed.value=String(v); el.speed.dispatchEvent(new Event('input')); }
+    if(e.key==='-' || e.key==='_'){ const v=Math.max(0.2, (sim.speed-0.1)); el.speed.value=String(v); el.speed.dispatchEvent(new Event('input')); }
+  });
+
+  // Pintar plantas / adicionar agentes — com leve throttle para desempenho
+  let painting=false; let lastPaintTs=0;
+  worldCanvas.addEventListener('pointerdown',e=>{ painting=true; handlePaint(e,true); });
+  worldCanvas.addEventListener('pointermove',e=>{ if(painting) handlePaint(e,false); });
+  window.addEventListener('pointerup',()=>{ painting=false; });
+  function handlePaint(e, force){
+    const now=performance.now(); if(!force && now-lastPaintTs<16) return; lastPaintTs=now;
+    const rect=worldCanvas.getBoundingClientRect(); const x=e.clientX-rect.left, y=e.clientY-rect.top;
+    if(e.altKey){ sim.carn.push(new Carn(x,y)); sim.births++; return; }
+    if(e.shiftKey){ sim.herb.push(new Herb(x,y)); sim.births++; return; }
+    // Pintar plantas
+    const gx=Math.floor(x/sim.W*sim.gridW), gy=Math.floor(y/sim.H*sim.gridH);
+    for(let oy=-1;oy<=1;oy++) for(let ox=-1;ox<=1;ox++){ const X=clamp(gx+ox,0,sim.gridW-1)|0; const Y=clamp(gy+oy,0,sim.gridH-1)|0; const i=idx(X,Y); sim.grid[i]=clamp(sim.grid[i]+0.25,0,1); }
+  }
+
+  // ====== Reset / Inicialização ======
+  // Função para limpar arrays de agentes undefined
+  function cleanAgentArrays(){
+    const beforeHerb = sim.herb.length;
+    const beforeCarn = sim.carn.length;
+    sim.herb = sim.herb.filter(h => h !== undefined && h !== null);
+    sim.carn = sim.carn.filter(c => c !== undefined && c !== null);
+    const afterHerb = sim.herb.length;
+    const afterCarn = sim.carn.length;
+
+    if(sim.debugLogs && (beforeHerb !== afterHerb || beforeCarn !== afterCarn)){
+      console.log(`🧹 Arrays limpos: Herbívoros ${beforeHerb}→${afterHerb}, Carnívoros ${beforeCarn}→${afterCarn}`);
+    }
+  }
+
+  function randomize(reseed=false){
+    if(reseed) initPlants();
+    sim.herb.length=0; sim.carn.length=0; sim.births=0; sim.deaths=0; sim.time=0; sim.charts.pop.length=0; sim.charts.rates.length=0;
+    if(!sim.charts.rates.totalBirths) sim.charts.rates.totalBirths=0;
+    if(!sim.charts.rates.totalDeaths) sim.charts.rates.totalDeaths=0;
+    const area=(sim.W*sim.H)/ (1100*700); // normalizador ~1 para 1100x700
+    const herbCount = Math.max(40, Math.floor(90*area));
+    const carnCount = Math.max(8, Math.floor(18*area));
+    spawnHerb(herbCount);
+    spawnCarn(carnCount);
+    if(sim.debugLogs) console.log(`🎲 Mundo aleatorizado: ${herbCount} herbívoros, ${carnCount} carnívoros`);
+    cleanAgentArrays(); // Limpeza inicial
+  }
+  function resetWorld(){ initPlants(); randomize(false); }
+
+  // ====== Loop ======
+  let last=performance.now(), acc=0, frames=0, fpst=0, renderAcc=0, lastChartMs=0;
+  function loop(now){
+    if(!loopRunning) { if(sim.debugLogs) console.log('🔄 Loop de animação iniciado'); loopRunning = true; }
+
+    const rawdt=(now-last)/1000; last=now;
+
+    if(sim.running){
+      // Avança a simulação com timestep fixo (dt) e fator de velocidade
+      acc += rawdt * sim.speed;
+      let steps=0; const maxSteps=8;
+      while(acc >= sim.dt && steps < maxSteps){ step(sim.dt); acc -= sim.dt; steps++; }
+      if(steps===maxSteps){
+        // Evita espiral de morte: descarta backlog se não acompanhou
+        acc = 0;
+      }
+
+      // Limpeza periódica dos arrays a cada ~5s de tempo simulado
+      if(sim.time % 5 < 0.1) cleanAgentArrays();
+
+      // Renderização com FPS alvo (reduz draw calls)
+      renderAcc += rawdt;
+      const renderInterval = 1/Math.max(1, sim.renderFPS||60);
+      if(renderAcc >= renderInterval){
+        renderAcc = 0;
+        draw();
+        // Gráficos a cada 250ms para aliviar custo
+        if(now - lastChartMs > 250){ drawSeries(); lastChartMs = now; }
+
+        // FPS baseado em taxa de render
+        fpst += rawdt; frames++;
+        if(fpst>0.5){
+          sim.fps=Math.round(frames/fpst);
+          frames=0; fpst=0;
+          const fpsElement = document.getElementById('fps');
+          if(fpsElement) fpsElement.textContent=sim.fps;
+          if(sim.debugLogs) console.log(`📊 FPS(r): ${sim.fps}, Agentes: H${sim.herb.length}/C${sim.carn.length}`);
+        }
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // Variáveis globais do loop
+  let loopRunning = false;
+
+  function step(dt){
+    growPlants(dt);
+    // Agents - iteração reversa para remoção segura
+    for(let i=sim.herb.length-1;i>=0;i--) {
+      const h = sim.herb[i];
+      if(h && typeof h.step === 'function') {
+        h.step(dt);
+      } else if(h === undefined) {
+        console.warn('⚠️ Herbívoro undefined encontrado, removendo...');
+        sim.herb.splice(i, 1);
+      }
+    }
+
+    for(let i=sim.carn.length-1;i>=0;i--) {
+      const c = sim.carn[i];
+      if(c && typeof c.step === 'function') {
+        c.step(dt);
+      } else if(c === undefined) {
+        console.warn('⚠️ Carnívoro undefined encontrado, removendo...');
+        sim.carn.splice(i, 1);
+      }
+    }
+
+    autoBalance(dt);
+    sim.time+=dt;
+    // Amostra séries a cada 1s
+    if((sim.time|0)!==((sim.time-dt)|0)) sampleSeries();
+    // UI
+    const N=sim.grid.length; let sum=0; for(let i=0;i<N;i++) sum+=sim.grid[i];
+    const plantAvg=sum/N; el.herbCount.textContent=sim.herb.length; el.carnCount.textContent=sim.carn.length;
+    el.plantBiomass.textContent=(plantAvg*sim.grid.length).toFixed(0);
+    el.births.textContent=sim.births; el.deaths.textContent=sim.deaths;
+    let aSum=0, ac=0; for(const h of sim.herb){ aSum+=h.age; ac++; } for(const c of sim.carn){ aSum+=c.age; ac++; }
+    el.avgAge.textContent= ac? (aSum/ac).toFixed(1)+' s' : '—';
+    el.plantCoverage.textContent=plantCoverage();
+  }
+
+  function sampleSeries(){
+    const plants = Math.round((sim.grid.reduce((a,b)=>a+b,0)/sim.grid.length)*100);
+    const point={ plant:plants, herb:sim.herb.length, carn:sim.carn.length };
+    sim.charts.pop.push(point); if(sim.charts.pop.length>sim.charts.maxLen) sim.charts.pop.shift();
+    // Nascimentos/mortes por janela: derivar das contagens totais (aproximação)
+    const totalBirths = sim.charts.rates.totalBirths || 0;
+    const totalDeaths = sim.charts.rates.totalDeaths || 0;
+    const db=sim.births - totalBirths;
+    const dd=sim.deaths - totalDeaths;
+    sim.charts.rates.totalBirths = sim.births; sim.charts.rates.totalDeaths = sim.deaths;
+    sim.charts.rates.push({ births:Math.max(0,db), deaths:Math.max(0,dd) });
+    if(sim.charts.rates.length>sim.charts.maxLen) sim.charts.rates.shift();
+  }
+
+  // ====== Testes Automáticos (Smoke + Comportamento) ======
+  function approx(a,b,eps=1e-6){ return Math.abs(a-b)<=eps; }
+  function runTests(){
+    let passed=0, failed=0; const logs=[];
+    function ok(name,cond){ cond?passed++:failed++; logs.push({name, ok:cond}); }
+
+    // Teste 1: comer planta reduz biomassa corretamente
+    const backupGrid = sim.grid.slice();
+    const pxi = (0.5/sim.gridW)*sim.W, pyi = (0.5/sim.gridH)*sim.H; // centro da célula (0,0)
+    const i0 = 0; sim.grid[i0]=0.5; const took = eatPlant(pxi, pyi, 0.2);
+    ok('eatPlant reduz corretamente', approx(took,0.2) && approx(sim.grid[i0],0.3));
+    sim.grid.set(backupGrid);
+
+    // Teste 2: wrap mantém agente dentro do mundo
+    const a=new Herb(-5,-5); a.wrap(); ok('wrap mantém no mundo', (a.x>=0 && a.x<=sim.W && a.y>=0 && a.y<=sim.H));
+
+    // Teste 3: autoBalance reage quando herbívoros << alvo
+    const prevGrowth = sim.growth; const prevCarnMeta=sim.params.carnMeta; const oldAuto=sim.autoBalance; sim.autoBalance=true;
+    const tmpGrid = new Float32Array(sim.grid.length); tmpGrid.fill(0.05); const bakGrid2=sim.grid; sim.grid=tmpGrid;
+    const Hlen=sim.herb.length, Clen=sim.carn.length; sim.herb.length=0; sim.carn.length=0;
+    balanceTimer=2.6; autoBalance(0.1);
+    ok('autoBalance ajusta recursos/predação', (sim.growth>=prevGrowth) && (sim.params.carnMeta>=prevCarnMeta));
+    sim.grid=bakGrid2; sim.autoBalance=oldAuto; sim.herb.length=Hlen; sim.carn.length=Clen; sim.growth=prevGrowth; sim.params.carnMeta=prevCarnMeta;
+
+    // Teste 4: plantCoverage fica em [0,100] e cresce com growPlants
+    const bakGrid3 = sim.grid.slice();
+    sim.grid.fill(0.0); const cov0=plantCoverage(); growPlants(1.0); const cov1=plantCoverage();
+    ok('plantCoverage dentro do intervalo e aumenta', cov0>=0 && cov0<=100 && cov1>=cov0 && cov1<=100);
+    sim.grid.set(bakGrid3);
+
+    // Teste 5: reprodução herbívora cria 1 filhote quando próximos e com energia
+    const bakH=sim.herb.slice(); const bakC=sim.carn.slice(); const bakBirth=sim.births;
+    sim.herb.length=0; sim.carn.length=0;
+    const h1=new Herb(100,100), h2=new Herb(104,104); h1.energy=sim.params.herbReproThresh+1; h2.energy=sim.params.herbReproThresh+1; h1.cool=h2.cool=0;
+    sim.herb.push(h1,h2);
+    h1.step(0.02); h2.step(0.02);
+    ok('reprodução herbívora gera novo agente', sim.herb.length===3 && sim.births===bakBirth+1);
+    sim.herb=bakH; sim.carn=bakC; sim.births=bakBirth;
+
+    // Teste 6: carnívoro caça e remove herbívoro em alcance (desativar ferimento aleatório)
+    const bakH2=sim.herb.slice(); const bakC2=sim.carn.slice(); const bakDeaths=sim.deaths;
+    const bakPack=sim.params.packDefenseBase; sim.params.packDefenseBase=0;
+    sim.herb.length=0; sim.carn.length=0;
+    const HH=new Herb(200,200); const CC=new Carn(200,200); sim.herb.push(HH); sim.carn.push(CC);
+    CC.step(0.02);
+    ok('carnívoro remove presa ao capturar', sim.herb.length===0 && sim.deaths===bakDeaths+1);
+    sim.herb=bakH2; sim.carn=bakC2; sim.deaths=bakDeaths; sim.params.packDefenseBase=bakPack;
+
+    // Teste 7: throttling de resize não explode ao ser chamado repetidamente
+    let threw=false; try{ for(let i=0;i<5;i++) handleResize(); }catch(e){ threw=true; }
+    ok('handleResize é estável (sem exceção)', !threw);
+
+    // Atualiza badge e console
+    const badge = (failed===0? `✔️ ${passed} passed` : `⚠️ ${passed} passed, ${failed} failed`);
+    if(el.testsBadge) el.testsBadge.textContent = `Tests: ${badge}`;
+    console.table(logs);
+  }
+
+  // ====== Inicializar ======
+  console.log('🚀 Iniciando simulador...');
+
+  // Verificar se elementos DOM estão disponíveis
+  if(!worldCanvas) {
+    console.error('❌ Canvas não encontrado! Verifique o HTML.');
+    return;
+  }
+  if(!ctx) {
+    console.error('❌ Contexto 2D não encontrado! Verifique o canvas.');
+    return;
+  }
+
+  initPlants();
+  handleResize();
+  // Carregar configurações salvas (se houver)
+  loadSettings();
+  randomize(false);
+  console.log('📊 Executando testes...');
+  runTests();
+  console.log('🎮 Iniciando loop de animação...');
+  console.log('📈 Estado inicial:', {
+    plantas: `${sim.grid.length} células`,
+    herbivoros: sim.herb.length,
+    carnivoros: sim.carn.length,
+    canvas: `${sim.W}x${sim.H}`,
+    simulacao: sim.running ? 'Rodando' : 'Pausada'
+  });
+
+  // Verificar se os agentes foram criados corretamente
+  console.log('🔍 Verificando agentes...');
+  let validHerb = 0, validCarn = 0;
+  for(const h of sim.herb) { if(h && h.energy !== undefined) validHerb++; }
+  for(const c of sim.carn) { if(c && c.energy !== undefined) validCarn++; }
+  console.log(`✅ Agentes válidos: ${validHerb}/${sim.herb.length} herbívoros, ${validCarn}/${sim.carn.length} carnívoros`);
+  requestAnimationFrame(loop);
+
+  // ====== Expor alguns controles no console (debug) ======
+  window.ecoSim=sim;
+
+})();
+</script>
+</body>
+</html>

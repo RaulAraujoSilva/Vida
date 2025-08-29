@@ -129,6 +129,7 @@
           <button id="resetBtn">🔄 Resetar</button>
           <button id="randomBtn">🎲 Aleatorizar</button>
           <label class="toggle"><input type="checkbox" id="autoBalance" checked title="Ajusta parâmetros automaticamente para manter populações estáveis"/> AI de equilíbrio</label>
+          <label class="toggle"><input type="checkbox" id="limitPopulation" checked title="Restringe nascimentos com base no limite máximo de agentes"/> Limitar população</label>
           <label class="toggle"><input type="checkbox" id="debugVision" title="Exibe o raio de visão dos agentes"/> Mostrar visão</label>
         </div>
         <div class="tools" style="margin-bottom:8px">
@@ -147,6 +148,11 @@
           <div class="row"><label>Carnívoros — visão</label><input type="range" id="carnVision" min="30" max="260" step="5" value="140" title="Alcance de percepção de presas e parceiros"><div class="out" id="carnVisionOut">140</div></div>
           <div class="row"><label>Carnívoros — metabolismo</label><input type="range" id="carnMeta" min="0.01" max="0.3" step="0.005" value="0.09" title="Consumo de energia por segundo"><div class="out" id="carnMetaOut">0.090</div></div>
           <div class="row"><label>Energia por presa</label><input type="range" id="meatEnergy" min="1" max="8" step="0.1" value="3.5" title="Energia recebida ao capturar um herbívoro"><div class="out" id="meatEnergyOut">3.5</div></div>
+          <div class="row"><label>Descanso pós-caça (s)</label><input type="range" id="postHuntDelay" min="0" max="15" step="0.5" value="5" title="Tempo sem caçar após capturar uma presa"><div class="out" id="postHuntDelayOut">5.0</div></div>
+          <div class="row"><label>Reprodução — cooldown (s)</label><input type="range" id="reproCooldown" min="2" max="30" step="0.5" value="12" title="Tempo mínimo entre reproduções de um agente"><div class="out" id="reproCooldownOut">12.0</div></div>
+          <div class="row"><label>Reprodução — custo (energia)</label><input type="range" id="reproCost" min="0.1" max="2.0" step="0.05" value="0.5" title="Energia consumida por reprodução (cada pai)"><div class="out" id="reproCostOut">0.50</div></div>
+          <div class="row"><label>Limiar repro — herb.</label><input type="range" id="herbReproThresh" min="2" max="8" step="0.1" value="6" title="Energia mínima para herbívoros acasalarem"><div class="out" id="herbReproThreshOut">6.0</div></div>
+          <div class="row"><label>Limiar repro — carn.</label><input type="range" id="carnReproThresh" min="5" max="12" step="0.1" value="9" title="Energia mínima para carnívoros acasalarem"><div class="out" id="carnReproThreshOut">9.0</div></div>
           <div class="row"><label>Limite máx. de agentes</label><input type="range" id="maxAgents" min="50" max="600" step="10" value="300" title="População máxima combinada de agentes"><div class="out" id="maxAgentsOut">300</div></div>
         </div>
       </div>
@@ -238,6 +244,8 @@
       postHuntDelay: 5.0,
     },
     autoBalance:true, debugVision:false,
+    // Controle de capacidade populacional
+    limitPopulation:true,
     target:{ herb:120, carn:28, plantCoverage:60 },
     charts:{ pop:[], rates:[], maxLen:360 },
     fps:0
@@ -378,7 +386,7 @@
       this.energy -= sim.params.herbMeta*dt*(1+0.25*(Math.hypot(this.vx,this.vy)/(sim.params.herbSpeed||1)));
 
       // Reproduzir (raio levemente maior para facilitar encontro)
-      if(mate && Math.sqrt(md2)<P.mateRadiusHerb && this.energy> P.herbReproThresh && mate.energy> P.herbReproThresh && this.cool<=0 && mate.cool<=0 && (sim.herb.length+sim.carn.length)<sim.maxAgents){
+      if(mate && Math.sqrt(md2)<P.mateRadiusHerb && this.energy> P.herbReproThresh && mate.energy> P.herbReproThresh && this.cool<=0 && mate.cool<=0 && canSpawn(1)){
         this.energy -= P.reproCost; mate.energy -= P.reproCost;
         const b=new Herb((this.x+mate.x)/2 + rand(-6,6), (this.y+mate.y)/2 + rand(-6,6));
         b.energy = 2.2; b.cool = P.reproCooldown*0.5;
@@ -462,7 +470,7 @@
       this.energy -= P.carnMeta*dt*(1+0.2*(Math.hypot(this.vx,this.vy)/(sim.params.carnSpeed||1)));
 
       // Reproduzir (raio levemente maior para facilitar encontro)
-      if(mate && Math.sqrt(md2)<P.mateRadiusCarn && this.energy>P.carnReproThresh && mate.energy>P.carnReproThresh && this.cool<=0 && mate.cool<=0 && (sim.herb.length+sim.carn.length)<sim.maxAgents){
+      if(mate && Math.sqrt(md2)<P.mateRadiusCarn && this.energy>P.carnReproThresh && mate.energy>P.carnReproThresh && this.cool<=0 && mate.cool<=0 && canSpawn(1)){
         this.energy -= P.reproCost; mate.energy -= P.reproCost;
         const b=new Carn((this.x+mate.x)/2 + rand(-6,6), (this.y+mate.y)/2 + rand(-6,6));
         b.energy=3.0; b.cool = P.reproCooldown*0.7; sim.carn.push(b); sim.births++;
@@ -658,8 +666,13 @@
     carnVision:document.getElementById('carnVision'), carnVisionOut:document.getElementById('carnVisionOut'),
     carnMeta:document.getElementById('carnMeta'), carnMetaOut:document.getElementById('carnMetaOut'),
     meatEnergy:document.getElementById('meatEnergy'), meatEnergyOut:document.getElementById('meatEnergyOut'),
+    postHuntDelay:document.getElementById('postHuntDelay'), postHuntDelayOut:document.getElementById('postHuntDelayOut'),
+    reproCooldown:document.getElementById('reproCooldown'), reproCooldownOut:document.getElementById('reproCooldownOut'),
+    reproCost:document.getElementById('reproCost'), reproCostOut:document.getElementById('reproCostOut'),
+    herbReproThresh:document.getElementById('herbReproThresh'), herbReproThreshOut:document.getElementById('herbReproThreshOut'),
+    carnReproThresh:document.getElementById('carnReproThresh'), carnReproThreshOut:document.getElementById('carnReproThreshOut'),
     maxAgents:document.getElementById('maxAgents'), maxAgentsOut:document.getElementById('maxAgentsOut'),
-    autoBalance:document.getElementById('autoBalance'), debugVision:document.getElementById('debugVision'),
+    autoBalance:document.getElementById('autoBalance'), limitPopulation:document.getElementById('limitPopulation'), debugVision:document.getElementById('debugVision'),
     toggleRun:document.getElementById('toggleRun'), resetBtn:document.getElementById('resetBtn'), randomBtn:document.getElementById('randomBtn'),
     presetBalanced:document.getElementById('presetBalanced'), presetHerb:document.getElementById('presetHerb'), presetCarn:document.getElementById('presetCarn'), restoreDefaults:document.getElementById('restoreDefaults'),
   };
@@ -692,8 +705,19 @@
   bindRange(el.carnVision, el.carnVisionOut, v=> sim.params.carnVision=v);
   bindRange(el.carnMeta, el.carnMetaOut, v=> sim.params.carnMeta=v);
   bindRange(el.meatEnergy, el.meatEnergyOut, v=> sim.params.meatEnergy=v);
+  bindRange(el.postHuntDelay, el.postHuntDelayOut, v=> sim.params.postHuntDelay=v);
+  bindRange(el.reproCooldown, el.reproCooldownOut, v=> sim.params.reproCooldown=v);
+  bindRange(el.reproCost, el.reproCostOut, v=> sim.params.reproCost=v);
+  bindRange(el.herbReproThresh, el.herbReproThreshOut, v=> sim.params.herbReproThresh=v);
+  bindRange(el.carnReproThresh, el.carnReproThreshOut, v=> sim.params.carnReproThresh=v);
   bindRange(el.maxAgents, el.maxAgentsOut, v=> sim.maxAgents=v|0);
   el.autoBalance.addEventListener('change', e=>{ sim.autoBalance=e.target.checked; saveSettingsDebounced(); });
+  el.limitPopulation.addEventListener('change', e=>{
+    sim.limitPopulation = e.target.checked;
+    // Desabilitar slider de maxAgents quando limite estiver desligado
+    if(el.maxAgents){ el.maxAgents.disabled = !sim.limitPopulation; }
+    saveSettingsDebounced();
+  });
   el.debugVision.addEventListener('change', e=>{ sim.debugVision=e.target.checked; saveSettingsDebounced(); });
   el.toggleRun.addEventListener('click', ()=>{ sim.running=!sim.running; el.toggleRun.textContent= sim.running? '⏸️ Pausar' : '▶️ Continuar'; });
   el.resetBtn.addEventListener('click', resetWorld);
@@ -704,7 +728,9 @@
     speed:1.0, growth:0.01, spread:0.08,
     herbVision:100, herbMeta:0.06, plantEnergy:0.7,
     carnVision:140, carnMeta:0.09, meatEnergy:3.5,
-    maxAgents:300, autoBalance:true, debugVision:false
+    postHuntDelay:5.0, reproCooldown:12.0, reproCost:0.5,
+    herbReproThresh:6.0, carnReproThresh:9.0,
+    maxAgents:300, autoBalance:true, limitPopulation:true, debugVision:false
   };
 
   function getSettings(){
@@ -712,7 +738,9 @@
       speed: sim.speed, growth: sim.growth, spread: sim.spread,
       herbVision: sim.params.herbVision, herbMeta: sim.params.herbMeta, plantEnergy: sim.params.plantEnergy,
       carnVision: sim.params.carnVision, carnMeta: sim.params.carnMeta, meatEnergy: sim.params.meatEnergy,
-      maxAgents: sim.maxAgents, autoBalance: sim.autoBalance, debugVision: sim.debugVision
+      postHuntDelay: sim.params.postHuntDelay, reproCooldown: sim.params.reproCooldown, reproCost: sim.params.reproCost,
+      herbReproThresh: sim.params.herbReproThresh, carnReproThresh: sim.params.carnReproThresh,
+      maxAgents: sim.maxAgents, autoBalance: sim.autoBalance, limitPopulation: sim.limitPopulation, debugVision: sim.debugVision
     };
   }
 
@@ -728,8 +756,14 @@
     if('carnVision' in s) setVal(el.carnVision, s.carnVision);
     if('carnMeta' in s) setVal(el.carnMeta, s.carnMeta);
     if('meatEnergy' in s) setVal(el.meatEnergy, s.meatEnergy);
+    if('postHuntDelay' in s) setVal(el.postHuntDelay, s.postHuntDelay);
+    if('reproCooldown' in s) setVal(el.reproCooldown, s.reproCooldown);
+    if('reproCost' in s) setVal(el.reproCost, s.reproCost);
+    if('herbReproThresh' in s) setVal(el.herbReproThresh, s.herbReproThresh);
+    if('carnReproThresh' in s) setVal(el.carnReproThresh, s.carnReproThresh);
     if('maxAgents' in s) setVal(el.maxAgents, s.maxAgents);
     if('autoBalance' in s){ el.autoBalance.checked=!!s.autoBalance; el.autoBalance.dispatchEvent(new Event('change')); }
+    if('limitPopulation' in s){ el.limitPopulation.checked=!!s.limitPopulation; el.limitPopulation.dispatchEvent(new Event('change')); }
     if('debugVision' in s){ el.debugVision.checked=!!s.debugVision; el.debugVision.dispatchEvent(new Event('change')); }
   }
 
@@ -817,6 +851,12 @@
   function resetWorld(){ initPlants(); randomize(false); }
 
   // ====== Loop ======
+  // Verifica se é possível gerar novos agentes considerando o limite populacional
+  function canSpawn(n=1){
+    if(!sim.limitPopulation) return true;
+    const total = sim.herb.length + sim.carn.length;
+    return (total + (n|0)) <= sim.maxAgents;
+  }
   let last=performance.now(), acc=0, frames=0, fpst=0, renderAcc=0, lastChartMs=0;
   function loop(now){
     if(!loopRunning) { if(sim.debugLogs) console.log('🔄 Loop de animação iniciado'); loopRunning = true; }

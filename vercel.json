@@ -40,10 +40,5 @@
         }
       ]
     }
-  ],
-  "functions": {
-    "**/*.html": {
-      "maxDuration": 10
-    }
-  }
+  ]
 }

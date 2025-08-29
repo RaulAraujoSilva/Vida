@@ -4,13 +4,32 @@ Este é um simulador de ecossistema em tempo real implementado em HTML5, CSS3 e 
 
 ## 🚀 Como Executar
 
-### Opção 1: Servidor HTTP (Recomendado)
+### 🌐 Deploy Online (Vercel)
+O projeto está configurado para deploy automático no Vercel:
+
+1. **Fork este repositório** no GitHub
+2. **Conecte ao Vercel**:
+   - Acesse [vercel.com](https://vercel.com)
+   - Faça login com sua conta GitHub
+   - Clique em "New Project"
+   - Selecione este repositório
+   - Clique em "Deploy"
+3. **Acesse sua aplicação** na URL fornecida pelo Vercel
+
+**URLs de acesso após deploy:**
+- `/` - Página inicial com navegação
+- `/simulador` - Acesso direto ao simulador
+- `/debug` - Página de debug
+
+### 💻 Execução Local
+
+#### Opção 1: Servidor HTTP (Recomendado)
 1. Certifique-se de ter Python instalado
 2. Execute: `python -m http.server 8080`
-3. Abra o navegador e acesse: `http://localhost:8080/simulador-ecossistema.html`
+3. Abra o navegador e acesse: `http://localhost:8080`
 
-### Opção 2: Abrir diretamente no navegador
-- Abra o arquivo `simulador-ecossistema.html` diretamente no navegador
+#### Opção 2: Abrir diretamente no navegador
+- Abra o arquivo `index.html` diretamente no navegador
 - Nota: Algumas funcionalidades podem não funcionar corretamente devido a restrições de CORS
 
 ## 🎮 Como Usar

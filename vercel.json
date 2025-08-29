@@ -1,24 +1,12 @@
 {
-  "version": 2,
-  "name": "simulador-ecossistema",
-  "builds": [
+  "rewrites": [
     {
-      "src": "**/*",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/",
-      "dest": "/index.html"
+      "source": "/simulador",
+      "destination": "/simulador-ecossistema.html"
     },
     {
-      "src": "/simulador",
-      "dest": "/simulador-ecossistema.html"
-    },
-    {
-      "src": "/debug",
-      "dest": "/debug.html"
+      "source": "/debug",
+      "destination": "/debug.html"
     }
   ],
   "headers": [

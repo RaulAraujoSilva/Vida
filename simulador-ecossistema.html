@@ -201,6 +201,9 @@
   function handleResize(){
     const rect=panel.getBoundingClientRect();
     resizeFromRect(rect);
+    // Grid espacial
+    if(!sim.agentGrid) sim.agentGrid = new SpatialGrid(sim.W, sim.H, sim.agentGridCellSize);
+    else sim.agentGrid.updateDimensions(sim.W, sim.H);
   }
   const ro=new ResizeObserver((entries)=>{
     const rect=entries[0].contentRect;
@@ -222,6 +225,7 @@
     gridW: 96, gridH: 64, grid:[], growth:0.01, spread:0.08,
     // Agentes
     herb:[], carn:[], maxAgents:300,
+    agentGrid:null, agentGridCellSize: 150, // Otimização: grid espacial
     births:0, deaths:0,
     params:{
       herbVision:100, carnVision:140, herbMeta:0.06, carnMeta:0.09,
@@ -298,6 +302,55 @@
   }
 
   // ====== Agentes ======
+  // Otimização: Grid espacial para consulta rápida de vizinhos
+  class SpatialGrid{
+    constructor(width, height, cellSize){
+      this.cellSize = cellSize;
+      this.updateDimensions(width, height);
+      this.grid = new Map();
+    }
+
+    updateDimensions(width, height){
+      this.cols = Math.ceil(width / this.cellSize);
+      this.rows = Math.ceil(height / this.cellSize);
+    }
+
+    clear(){ this.grid.clear(); }
+
+    insert(agent){
+      const cx = clamp(Math.floor(agent.x / this.cellSize), 0, this.cols - 1);
+      const cy = clamp(Math.floor(agent.y / this.cellSize), 0, this.rows - 1);
+      const key = cy * this.cols + cx;
+      if (!this.grid.has(key)) {
+        this.grid.set(key, []);
+      }
+      this.grid.get(key).push(agent);
+    }
+
+    // Consulta agentes na célula de (x,y) e nas 8 células vizinhas
+    query(x, y, radius){
+      const results = [];
+      const queryBox = {
+        minX: Math.floor((x - radius) / this.cellSize),
+        maxX: Math.floor((x + radius) / this.cellSize),
+        minY: Math.floor((y - radius) / this.cellSize),
+        maxY: Math.floor((y + radius) / this.cellSize),
+      };
+
+      for (let cy = queryBox.minY; cy <= queryBox.maxY; cy++) {
+        for (let cx = queryBox.minX; cx <= queryBox.maxX; cx++) {
+          const wrappedCX = (cx + this.cols) % this.cols;
+          const wrappedCY = (cy + this.rows) % this.rows;
+          const key = wrappedCY * this.cols + wrappedCX;
+          if (this.grid.has(key)) {
+            results.push(...this.grid.get(key));
+          }
+        }
+      }
+      return results;
+    }
+  }
+
   class Agent{
     constructor(x,y){ this.x=x; this.y=y; this.vx=rand(-1,1); this.vy=rand(-1,1); this.energy=1; this.age=0; this.cool=0; }
     wrap(){ if(this.x<0) this.x+=sim.W; if(this.x>sim.W) this.x-=sim.W; if(this.y<0) this.y+=sim.H; if(this.y>sim.H) this.y-=sim.H; }
@@ -307,14 +360,25 @@
     constructor(x,y){ super(x,y); this.energy=rand(3,6); this.type='herb'; this.wanderAng=Math.random()*Math.PI*2; }
     step(dt){
       const P=sim.params; this.age+=dt; if(this.cool>0) this.cool-=dt;
-      const fearRad=sim.params.herbVision*0.9;
-      // Sensores: predador mais próximo, célula de planta mais nutritiva nas proximidades, parceiro
+
+      // Otimização: usar grid espacial para encontrar vizinhos
+      const maturedH = this.age >= P.maturityAgeHerb;
+      const vision = P.herbVision;
+      const mateVision = vision * (maturedH ? 1.3 : 1.0);
+      const queryRadius = Math.max(vision, mateVision);
+      const nearbyAgents = sim.agentGrid.query(this.x, this.y, queryRadius);
+
+      // Sensores: predador mais próximo
       let nearestPred=null, nd2=1e15;
-      for(const c of sim.carn){ const d2= (this.x-c.x)*(this.x-c.x)+(this.y-c.y)*(this.y-c.y); if(d2<nd2){ nd2=d2; nearestPred=c; } }
+      for(const agent of nearbyAgents){
+        if(agent.type !== 'carn') continue;
+        const d2 = dist2(this, agent);
+        if(d2 < nd2){ nd2=d2; nearestPred=agent; }
+      }
+      const fearRad=vision*0.9;
       const predatorClose = nearestPred && nd2 < fearRad*fearRad;
 
       // Explorar vizinhança por plantas (raio visão)
-      const vision = sim.params.herbVision;
       // Amostras radiais
       let bestDir={dx:0,dy:0}, bestV=0;
       const samples=16;
@@ -325,13 +389,13 @@
         if(s.value>bestV){ bestV=s.value; bestDir.dx=Math.cos(a); bestDir.dy=Math.sin(a); }
       }
       // Parceiro para reprodução (maturidade amplia busca)
-      const maturedH = this.age >= P.maturityAgeHerb;
-      let mate=null, md2=1e12; if(this.energy> P.herbReproThresh && this.cool<=0){
-        const mateVision = P.herbVision * (maturedH? 1.3 : 1.0);
+      let mate=null, md2=1e12;
+      if(this.energy > P.herbReproThresh && this.cool <= 0){
         const mvsq = mateVision*mateVision;
-        for(const h of sim.herb){
-          if(h===this || h.cool>0 || h.energy<=P.herbReproThresh) continue;
-          const d2=dist2(this,h); if(d2<mvsq && d2<md2){ md2=d2; mate=h; }
+        for(const h of nearbyAgents){
+          if(h.type !== 'herb' || h === this || h.cool > 0 || h.energy <= P.herbReproThresh) continue;
+          const d2=dist2(this,h);
+          if(d2 < mvsq && d2 < md2){ md2=d2; mate=h; }
         }
       }
 
@@ -402,20 +466,34 @@
     constructor(x,y){ super(x,y); this.energy=rand(4,7); this.type='carn'; this.injTs=0; this.noHuntTs=0; this.wanderAng=Math.random()*Math.PI*2; }
     step(dt){
       const P=sim.params; this.age+=dt; if(this.cool>0) this.cool-=dt;
+
+      // Otimização: usar grid espacial para encontrar vizinhos
+      const vision = P.carnVision;
+      const maturedC = this.age >= P.maturityAgeCarn;
+      const mateVision = vision * (maturedC ? 1.2 : 1.0);
+      const queryRadius = Math.max(vision, mateVision, P.packRadius);
+      const nearbyAgents = sim.agentGrid.query(this.x, this.y, queryRadius);
+
       // Caçar herbívoro mais próximo (desativado durante o descanso pós-caça)
       let prey=null, best=1e15, hasPrey=false;
       const canHunt = !(this.noHuntTs>sim.time);
       if(canHunt){
-        const vision=sim.params.carnVision;
-        for(const h of sim.herb){ const d2=dist2(this,h); if(d2<best){ best=d2; prey=h; } }
+        for(const agent of nearbyAgents){
+          if(agent.type !== 'herb') continue;
+          const d2=dist2(this,agent);
+          if(d2<best){ best=d2; prey=agent; }
+        }
         hasPrey = !!(prey && best < vision*vision);
       }
       // Parceiro
-      let mate=null, md2=1e12; if(this.energy>P.carnReproThresh && this.cool<=0){
-        const maturedC = this.age >= P.maturityAgeCarn;
-        const mateVision = P.carnVision * (maturedC? 1.2 : 1.0);
+      let mate=null, md2=1e12;
+      if(this.energy>P.carnReproThresh && this.cool<=0){
         const mvsq = mateVision*mateVision;
-        for(const c of sim.carn){ if(c===this || c.cool>0 || c.energy<=P.carnReproThresh) continue; const d2=dist2(this,c); if(d2<mvsq && d2<md2){ md2=d2; mate=c; } }
+        for(const c of nearbyAgents){
+          if(c.type !== 'carn' || c===this || c.cool>0 || c.energy<=P.carnReproThresh) continue;
+          const d2=dist2(this,c);
+          if(d2<mvsq && d2<md2){ md2=d2; mate=c; }
+        }
       }
       // Utilidades
       const hunger = clamp(1 - this.energy/P.carnMaxEnergy, 0, 1);
@@ -448,9 +526,13 @@
 
       // Comer (colisão) com risco de ferimento influenciado por grupos
       if(hasPrey && best < 100){
-        const pr = P.packRadius;
-        let hn=0; for(const h of sim.herb){ if(h!==prey && dist2(prey,h) < pr*pr) hn++; }
-        let cn=0; for(const c2 of sim.carn){ if(c2!==this && dist2(this,c2) < pr*pr) cn++; }
+        const pr = P.packRadius, prSq = pr*pr;
+        let hn=0, cn=0;
+        // Otimização: usa a lista de agentes próximos para contagem de grupo
+        for(const agent of nearbyAgents){
+          if(agent.type==='herb' && agent !== prey && dist2(prey, agent)<prSq) hn++;
+          if(agent.type==='carn' && agent !== this && dist2(this, agent)<prSq) cn++;
+        }
         const base=P.packDefenseBase, hf=P.packDefenseHerbFactor, cf=P.packDefenseCarnFactor;
         const pInjury = clamp(base * (1 + hf*Math.max(0,hn)) * (1 - cf*Math.max(0,cn)), 0, 0.9);
         const injured = Math.random()<pInjury;
@@ -903,6 +985,13 @@
   let loopRunning = false;
 
   function step(dt){
+    // Otimização: atualizar grid espacial com todos os agentes
+    if(sim.agentGrid){
+      sim.agentGrid.clear();
+      for(const h of sim.herb) sim.agentGrid.insert(h);
+      for(const c of sim.carn) sim.agentGrid.insert(c);
+    }
+
     growPlants(dt);
     // Agents - iteração reversa para remoção segura
     for(let i=sim.herb.length-1;i>=0;i--) {
@@ -988,7 +1077,11 @@
     sim.herb.length=0; sim.carn.length=0;
     const h1=new Herb(100,100), h2=new Herb(104,104); h1.energy=sim.params.herbReproThresh+1; h2.energy=sim.params.herbReproThresh+1; h1.cool=h2.cool=0;
     sim.herb.push(h1,h2);
-    h1.step(0.02); h2.step(0.02);
+    if(sim.agentGrid){ sim.agentGrid.clear(); sim.agentGrid.insert(h1); sim.agentGrid.insert(h2); }
+    h1.step(0.02);
+    // A reprodução pode ocorrer no passo de h1, então atualizamos o grid com o novo estado
+    if(sim.agentGrid){ sim.agentGrid.clear(); for(const h of sim.herb) sim.agentGrid.insert(h); }
+    h2.step(0.02);
     ok('reprodução herbívora gera novo agente', sim.herb.length===3 && sim.births===bakBirth+1);
     sim.herb=bakH; sim.carn=bakC; sim.births=bakBirth;
 
@@ -997,6 +1090,7 @@
     const bakPack=sim.params.packDefenseBase; sim.params.packDefenseBase=0;
     sim.herb.length=0; sim.carn.length=0;
     const HH=new Herb(200,200); const CC=new Carn(200,200); sim.herb.push(HH); sim.carn.push(CC);
+    if(sim.agentGrid){ sim.agentGrid.clear(); sim.agentGrid.insert(HH); sim.agentGrid.insert(CC); }
     CC.step(0.02);
     ok('carnívoro remove presa ao capturar', sim.herb.length===0 && sim.deaths===bakDeaths+1);
     sim.herb=bakH2; sim.carn=bakC2; sim.deaths=bakDeaths; sim.params.packDefenseBase=bakPack;
